@@ -25,31 +25,45 @@ export default function WorkoutApp() {
 
   // --- Backup Logic (Overwrites local file) ---
   const saveToBackupFile = async () => {
-    try {
-      let handle = fileHandle;
-      if (!handle) { // If no handle, prompt user to pick/create file
-        handle = await window.showSaveFilePicker({
-          suggestedName: 'my_workout_backup.json',
-          types: [{ description: 'JSON File', accept: { 'application/json': ['.json'] } }],
-        });
-        setFileHandle(handle); // Store handle for future automatic saves
+    const allData = {
+      logs: await db.logs.toArray(),
+      plans: await db.plans.toArray(),
+      exercises: await db.exercises.toArray()
+    };
+    const dataStr = JSON.stringify(allData, null, 2);
+  
+    // 1. Check if the "Modern" Overwrite API exists (Android/Chrome/Desktop)
+    if ('showSaveFilePicker' in window) {
+      try {
+        let handle = fileHandle;
+        if (!handle) {
+          handle = await window.showSaveFilePicker({
+            suggestedName: 'my_workout_backup.json',
+            types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }],
+          });
+          setFileHandle(handle);
+        }
+        const writable = await handle.createWritable();
+        await writable.write(dataStr);
+        await writable.close();
+        return; // Exit successfully
+      } catch (err) {
+        console.warn("Modern backup failed or was cancelled, falling back to download.");
       }
-      const allData = {
-        logs: await db.logs.toArray(),
-        plans: await db.plans.toArray(),
-        exercises: await db.exercises.toArray() // Include custom exercises
-      };
-      const writable = await handle.createWritable();
-      await writable.write(JSON.stringify(allData));
-      await writable.close();
-      console.log("Local backup file updated!");
-      alert("Local backup file updated!"); // User feedback
-    } catch (err) {
-      console.error("Backup failed: User may have declined file access or cancelled.", err);
-      alert("Backup failed or cancelled.");
     }
+  
+    // 2. iOS Fallback (Standard Download)
+    // This will save to the "Downloads" folder or "Files" app on iPhone
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `workout_backup_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
-
   // --- Session Completion Handler ---
   const handleFinishSession = async (planTitle, sessionResults) => {
     const newLog = {
@@ -293,59 +307,61 @@ function PlanSelector({ plans, onSelectPlan }) {
 }
 
 // ActiveSession: User fills in actual weight/reps for a selected plan
-function ActiveSession({ plan, onFinish }) {
-  // Initialize state with the plan's structure for recording results
+function ActiveSession({ plan, logs, onFinish }) {
+  // 1. Initialize with empty strings so backspacing works
   const [results, setResults] = useState(plan.exercises.map(ex => ({
     name: ex.name,
-    sets: Array.from({ length: ex.goalSets || 3 }, () => ({ weight: '', reps: '' })) // Default to 3 sets if not specified
+    sets: Array.from({ length: ex.goalSets || 3 }, () => ({ weight: '', reps: '' }))
   })));
 
   const updateResult = (exIdx, setIdx, field, val) => {
     const newResults = [...results];
-    newResults[exIdx].sets[setIdx][field] = val;
+    newResults[exIdx].sets[setIdx][field] = val; // Store raw string
     setResults(newResults);
   };
 
-  const calculate1RM = (weight, reps) => {
-    if (!weight || !reps || reps === 0) return 0;
-    // Brzycki Formula
-    return Math.round(parseFloat(weight) / (1.0278 - (0.0278 * parseFloat(reps))));
-  };
-
   return (
-    <div className="space-y-8">
-      <h1 className="text-3xl font-extrabold text-blue-400 mb-6 text-center">{plan.title}</h1>
+    <div className="space-y-8 pb-20">
+      <h1 className="text-3xl font-bold text-blue-400 text-center">{plan.title}</h1>
       
-      {results.map((ex, exIdx) => (
-        <div key={exIdx} className="bg-slate-900 border border-slate-800 p-4 rounded-xl shadow-lg space-y-3">
-          <h2 className="text-xl font-semibold text-white mb-3">{ex.name}</h2>
-          {ex.sets.map((set, setIdx) => (
-            <div key={setIdx} className="flex items-center gap-3 set-input-row"> {/* Apply CSS classes */}
-              <span className="set-input-label">Set {setIdx + 1}</span>
-              <input 
-                type="number" placeholder="Weight" 
-                className="set-input-field"
-                value={set.weight}
-                onChange={(e) => updateResult(exIdx, setIdx, 'weight', e.target.value)}
-              />
-              <input 
-                type="number" placeholder="Reps" 
-                className="set-input-field"
-                value={set.reps}
-                onChange={(e) => updateResult(exIdx, setIdx, 'reps', e.target.value)}
-              />
-              <span className="text-slate-500 text-sm flex-shrink-0">
-                1RM: {calculate1RM(set.weight, set.reps) || '-'}
-              </span>
-            </div>
-          ))}
-        </div>
-      ))}
+      {results.map((ex, exIdx) => {
+        const prevPerformance = getLastPerformance(logs, ex.name);
+
+        return (
+          <div key={exIdx} className="bg-slate-900 border border-slate-800 p-4 rounded-xl space-y-3">
+            <h2 className="text-xl font-semibold text-white">{ex.name}</h2>
+            {ex.sets.map((set, setIdx) => {
+              const prevSet = prevPerformance?.[setIdx];
+
+              return (
+                <div key={setIdx} className="set-input-row flex gap-2">
+                  <span className="text-xs text-slate-500 w-12 flex-shrink-0">SET {setIdx + 1}</span>
+                  <input 
+                    type="number" 
+                    placeholder={prevSet ? `Last: ${prevSet.weight}` : "Weight"}
+                    className="set-input-field"
+                    value={set.weight}
+                    onChange={(e) => updateResult(exIdx, setIdx, 'weight', e.target.value)}
+                  />
+                  <input 
+                    type="number" 
+                    placeholder={prevSet ? `Last: ${prevSet.reps}` : "Reps"}
+                    className="set-input-field"
+                    value={set.reps}
+                    onChange={(e) => updateResult(exIdx, setIdx, 'reps', e.target.value)}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+
       <button 
         onClick={() => onFinish(plan.title, results)} 
-        className="w-full bg-green-600 hover:bg-green-700 transition-colors p-4 rounded-xl font-bold text-lg flex items-center justify-center gap-2 shadow-md"
+        className="w-full bg-green-600 p-4 rounded-xl font-bold text-lg flex items-center justify-center gap-2"
       >
-        <Save size={20} /> Finish Session & Update Backup
+        <Save size={20} /> Finish & Save Backup
       </button>
     </div>
   );

@@ -191,7 +191,7 @@ function PlanCreator({ plans, setPlans }) {
             <span className="font-semibold text-md w-full md:w-1/3">{ex.name}</span>
             <div className="flex gap-2 w-full md:w-2/3">
               <input type="number" placeholder="Sets" value={ex.goalSets}
-                     onChange={(e) => updatePlanExercise(i, 'goalSets', parseInt(e.target.value) || 0)}
+                     onChange={(e) => updatePlanExercise(i, 'goalSets', e.target.value)}
                      className="bg-slate-700 p-2 rounded w-1/2 text-center" />
               <input type="text" placeholder="Reps (e.g., 8-12)" value={ex.goalReps}
                      onChange={(e) => updatePlanExercise(i, 'goalReps', e.target.value)}

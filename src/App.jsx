@@ -16,11 +16,19 @@ export default function WorkoutApp() {
 
   // Load all logs and plans on app start or tab change
   useEffect(() => {
-    const fetchData = async () => {
-      setLogs(await db.logs.toArray());
-      setPlans(await db.plans.toArray());
+    const refreshData = async () => {
+      // Grab everything from Dexie
+      const allLogs = await db.logs.toArray();
+      const allPlans = await db.plans.toArray();
+      
+      // Update the state so ActiveSession can see them
+      setLogs(allLogs);
+      setPlans(allPlans);
+      
+      //console.log("Database Sync: Found", allLogs.length, "logs.");
     };
-    fetchData();
+
+    refreshData();
   }, [activeTab]);
 
   // --- Backup Logic (Overwrites local file) ---
@@ -92,7 +100,7 @@ export default function WorkoutApp() {
         {activeTab === 'plan' && <PlanCreator plans={plans} setPlans={setPlans} />}
         {activeTab === 'active' && (
           activePlan ? (
-            <ActiveSession plan={activePlan} onFinish={handleFinishSession} />
+            <ActiveSession plan={activePlan} logs={logs} onCancel={() => setActivePlan(null)} onFinish={handleFinishSession} />
           ) : (
             <PlanSelector plans={plans} onSelectPlan={setActivePlan} />
           )
@@ -307,8 +315,18 @@ function PlanSelector({ plans, onSelectPlan }) {
 }
 
 // ActiveSession: User fills in actual weight/reps for a selected plan
-function ActiveSession({ plan, logs, onFinish }) {
-  // 1. Initialize with empty strings so backspacing works
+function ActiveSession({ plan, logs, onFinish, onCancel }) {
+  // 1. Internal Helper (Prevents "Not Defined" errors)
+  const findPrevious = (workoutName) => {
+    if (!logs || logs.length === 0) return null;
+    const relevant = [...logs]
+      .filter(l => l.exercises.some(e => e.name.toLowerCase() === workoutName.toLowerCase()))
+      .sort((a, b) => new Date(b.date) - new Date(a.date));
+    
+    if (relevant.length === 0) return null;
+    return relevant[0].exercises.find(e => e.name.toLowerCase() === workoutName.toLowerCase()).sets;
+  };
+
   const [results, setResults] = useState(plan.exercises.map(ex => ({
     name: ex.name,
     sets: Array.from({ length: ex.goalSets || 3 }, () => ({ weight: '', reps: '' }))
@@ -316,37 +334,55 @@ function ActiveSession({ plan, logs, onFinish }) {
 
   const updateResult = (exIdx, setIdx, field, val) => {
     const newResults = [...results];
-    newResults[exIdx].sets[setIdx][field] = val; // Store raw string
+    newResults[exIdx].sets[setIdx][field] = val;
     setResults(newResults);
   };
 
   return (
-    <div className="space-y-8 pb-20">
-      <h1 className="text-3xl font-bold text-blue-400 text-center">{plan.title}</h1>
-      
+    <div className="space-y-8 pb-32">
+      <div className="flex justify-between items-center px-2">
+        <h1 className="text-2xl font-bold text-blue-500 italic">{plan.title}</h1>
+        <button onClick={onCancel} className="text-slate-500"><XCircle size={24} /></button>
+      </div>
+
       {results.map((ex, exIdx) => {
-        const prevPerformance = getLastPerformance(logs, ex.name);
+        // Look up data using the internal helper
+        const prevPerformance = findPrevious(ex.name);
+
+        // Find the original plan data to get the goalReps
+  const planExercise = plan.exercises.find(pe => pe.name === ex.name);
 
         return (
-          <div key={exIdx} className="bg-slate-900 border border-slate-800 p-4 rounded-xl space-y-3">
-            <h2 className="text-xl font-semibold text-white">{ex.name}</h2>
+          <div key={exIdx} className="bg-slate-900 border border-slate-800 p-4 rounded-xl space-y-4 shadow-md">
+      {/* Updated Header with Workout Name and Target Reps */}
+      <div className="flex justify-between items-end border-l-4 border-blue-600 pl-3">
+        <h2 className="text-lg font-bold uppercase tracking-tight text-white">
+          {ex.name}
+        </h2>
+        <span className="text-xs font-bold text-slate-500 uppercase tracking-widest pb-1">
+          Target: {planExercise?.goalReps || '8-12'}
+        </span>
+      </div>
+            
             {ex.sets.map((set, setIdx) => {
               const prevSet = prevPerformance?.[setIdx];
 
               return (
-                <div key={setIdx} className="set-input-row flex gap-2">
-                  <span className="text-xs text-slate-500 w-12 flex-shrink-0">SET {setIdx + 1}</span>
+                <div key={setIdx} className="flex items-center gap-3">
+                  <span className="text-[10px] font-black text-slate-600 w-8">S{setIdx + 1}</span>
+                  
                   <input 
                     type="number" 
+                    className="bg-slate-800 text-slate-100 p-3 rounded-lg w-full text-center border border-slate-700 outline-none focus:border-blue-500"
                     placeholder={prevSet ? `Last: ${prevSet.weight}` : "Weight"}
-                    className="set-input-field"
                     value={set.weight}
                     onChange={(e) => updateResult(exIdx, setIdx, 'weight', e.target.value)}
                   />
+                  
                   <input 
                     type="number" 
+                    className="bg-slate-800 text-slate-100 p-3 rounded-lg w-full text-center border border-slate-700 outline-none focus:border-blue-500"
                     placeholder={prevSet ? `Last: ${prevSet.reps}` : "Reps"}
-                    className="set-input-field"
                     value={set.reps}
                     onChange={(e) => updateResult(exIdx, setIdx, 'reps', e.target.value)}
                   />
@@ -359,9 +395,9 @@ function ActiveSession({ plan, logs, onFinish }) {
 
       <button 
         onClick={() => onFinish(plan.title, results)} 
-        className="w-full bg-green-600 p-4 rounded-xl font-bold text-lg flex items-center justify-center gap-2"
+        className="w-full bg-blue-600 p-5 rounded-2xl font-black text-xl flex items-center justify-center gap-3 shadow-xl"
       >
-        <Save size={20} /> Finish & Save Backup
+        <Save size={24} /> FINISH WORKOUT
       </button>
     </div>
   );

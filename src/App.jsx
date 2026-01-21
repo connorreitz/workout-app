@@ -141,6 +141,7 @@ function PlanCreator({ plans, setPlans }) {
   const [addingCustomExercise, setAddingCustomExercise] = useState(false);
   const [newExerciseName, setNewExerciseName] = useState('');
   const [availableExercises, setAvailableExercises] = useState([]); // All unique workout names ever entered
+  const [recentWorkouts, setRecentWorkouts] = useState([]); // Last 3 completed workout plan titles
 
   useEffect(() => {
     // Load all unique exercises ever logged/planned
@@ -151,8 +152,13 @@ function PlanCreator({ plans, setPlans }) {
       const uniqueNames = new Set();
       allLogs.forEach(log => log.exercises.forEach(ex => uniqueNames.add(ex.name)));
       allPlans.forEach(plan => plan.exercises.forEach(ex => uniqueNames.add(ex.name)));
-      
+
       setAvailableExercises(Array.from(uniqueNames).sort());
+
+      // Get last 3 completed workout plan titles
+      const sortedLogs = [...allLogs].sort((a, b) => new Date(b.date) - new Date(a.date));
+      const recentTitles = sortedLogs.slice(0, 3).map(log => log.planTitle);
+      setRecentWorkouts(recentTitles);
     };
     fetchExercises();
   }, [plans]); // Re-fetch if plans change (new plan might add new exercises)
@@ -196,7 +202,21 @@ function PlanCreator({ plans, setPlans }) {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold mb-4">Create/Manage Plans</h1>
-      
+
+      {/* Recent Workouts Section */}
+      {recentWorkouts.length > 0 && (
+        <div className="bg-slate-900 p-4 rounded-xl border border-slate-800">
+          <h2 className="text-sm font-semibold text-slate-400 mb-2">Recent Workouts</h2>
+          <div className="flex flex-wrap gap-2">
+            {recentWorkouts.map((title, i) => (
+              <span key={i} className="bg-slate-800 text-slate-300 text-sm px-3 py-1 rounded-full border border-slate-700">
+                {title}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Create New Plan Section */}
       <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-4">
         <h2 className="text-xl font-semibold text-blue-400">New Plan</h2>
@@ -362,6 +382,13 @@ function ActiveSession({ plan, logs, onFinish, onCancel }) {
         <span className="text-xs font-bold text-slate-500 uppercase tracking-widest pb-1">
           Target: {planExercise?.goalReps || '8-12'}
         </span>
+      </div>
+
+      {/* NEW: Input Box Labels */}
+      <div className="flex gap-3 px-2 mb-[-8px]">
+        <div className="w-8"></div> {/* Spacer for the "S1" label */}
+        <span className="flex-1 text-center text-[10px] font-black text-slate-500 uppercase tracking-widest">Weight</span>
+        <span className="flex-1 text-center text-[10px] font-black text-slate-500 uppercase tracking-widest">Reps</span>
       </div>
             
             {ex.sets.map((set, setIdx) => {

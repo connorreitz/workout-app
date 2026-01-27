@@ -66,7 +66,7 @@ export default function WorkoutApp() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `workout_backup_${new Date().toISOString().split('T')[0]}.json`;
+    link.download = `workout_backup.json`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
